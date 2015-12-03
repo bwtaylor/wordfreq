@@ -1,6 +1,3 @@
-data/export/*.json  
-data/import/*.json
-data/input/*
-data/output/*.json
-data/staging/*.json
-data/complete/*.json
+
+data/tmp
+data/total.json

@@ -18,6 +18,11 @@ export_path = "data/export"
 if (stat(output_path).st_dev != stat(export_path).st_dev):
   message = "Export path %s must be same partition as Output path %s for atomic copy"
   sys.exit(message % (export_path, import_path))
+  
+def write_freq(filepath, counter):
+  with io.open(filepath, 'w', encoding='utf8') as json_file:
+    data = json.dumps(counter, ensure_ascii=False, encoding='utf8')
+    json_file.write(unicode(data))    
 
 def word_freq(filepath):
   raw_file_contents = open(filepath).read().lower()
@@ -25,9 +30,7 @@ def word_freq(filepath):
   wordfreq = Counter(words)
   json_filename = basename(filepath) + ".json"
   output_filepath = join(output_path, json_filename)
-  with io.open(output_filepath, 'w', encoding='utf8') as json_file:
-    data = json.dumps(wordfreq, ensure_ascii=False, encoding='utf8')
-    json_file.write(unicode(data))
+  write_freq(output_filepath, wordfreq)
   if verbose:
     print("Wrote word_freq of %s to %s" % (input_filepath, output_filepath) )
   return output_filepath
