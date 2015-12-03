@@ -12,6 +12,7 @@ from collections import Counter
 from os import listdir, stat
 from os.path import isfile, join, basename
 from shutil import move
+from hashlib import sha1
 
 verbose = False
 check_only = False
@@ -29,22 +30,29 @@ def write_freq(filepath, counter):
   json_file = io.open(filepath, 'w', encoding='utf8')
   data = json.dumps(counter, ensure_ascii=False, encoding='utf8')
   json_file.write(data)
-  json_file.close()
+  json_file.close()  
 
 def word_freq(filepath):
   f = open(filepath)
   raw_file_contents = f.read().lower()
   f.close()
-  words = split_regex.findall(raw_file_contents)
-  wordfreq = Counter(words)
-  json_filename = basename(filepath) + ".json"
+  json_filename = sha1(raw_file_contents).hexdigest() + ".json"
   output_filepath = join(output_path, json_filename)
-  write_freq(output_filepath, wordfreq)
-  if verbose:
-    print("Wrote word_freq of %s to %s" % (filepath, output_filepath) )
-  return output_filepath
+  export_filepath = join(export_path, json_filename) 
+  if isfile(export_filepath): 
+    if verbose:
+      print("Skipped word_freq of %s as %s already exists" % (filepath, export_filepath) )
+    return ''
+  else: 
+    write_freq(output_filepath, Counter(split_regex.findall(raw_file_contents)))
+    if verbose:
+      print("Wrote word_freq of %s to %s" % (filepath, output_filepath) )
+    return output_filepath
+    
   
 def export(output_filepath):
+  if output_filepath == '':
+    return
   json_filename = basename(output_filepath)
   export_filepath = join(export_path, json_filename)
   move(output_filepath, export_filepath)
@@ -75,10 +83,17 @@ def extract_host(ssh_path):
   else:
     return ''    
 
-def fetch(remote_filename):
-  returncode = subprocess.call(["scp", remote_filename, import_path])
-  if verbose and returncode==0:
-    print("fetched %s to %s" % (remote_filename, import_path)) 
+def fetch(ssh_path, filename):
+  remote_filename = ssh_path+"/"+filename
+  completed_filename = complete_path+"/"+filename
+  if not isfile(completed_filename):
+    returncode = subprocess.call(["scp", remote_filename, import_path])
+    if verbose and returncode==0:
+      print("fetched %s to %s" % (remote_filename, import_path))
+  else:
+    if verbose:
+      print("skip fetch of %s as %s already exist" % (remote_filename, completed_filename))
+    
 
 def synch(ssh_path):
   if verbose:
@@ -91,7 +106,7 @@ def synch(ssh_path):
     raw_output = subprocess.check_output(["ls", export_path])
   lines = raw_output.split('\n')
   for filename in lines[0:-1]:
-    fetch(ssh_path+"/"+filename)
+    fetch(ssh_path,filename)
     
 def read_freq(filename):
   try:
@@ -101,13 +116,7 @@ def read_freq(filename):
     return Counter( clean_unicode(json.loads(freq_raw)) )
   except IOError:
     return Counter()
-  
-def write_freq(filepath, counter):
-  json_file = io.open(filepath, 'w', encoding='utf8')
-  data = json.dumps(counter, ensure_ascii=False, encoding='utf8')
-  json_file.write(data) 
-  json_file.close()
-  
+    
 def total(freq_counter):
   print("  found %s occurances of %s words" % (sum(freq_counter.values()), len(freq_counter)) )
   total_counter = read_freq(total_filename)
@@ -137,10 +146,6 @@ def process_input():
     print("done processing input")
         
 def check(check_only):
-  if verbose:
-    print("input_path=%s" % input_path)
-    print("output_path=%s" % output_path)
-    print("export_path=%s" % export_path)
   if (stat(output_path).st_dev != stat(export_path).st_dev):
     message = "Export path %s must be same partition as Output path %s for atomic copy"
     sys.exit(message % (export_path, import_path))
