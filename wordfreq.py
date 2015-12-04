@@ -103,8 +103,8 @@ class RemoteWorker(object):
         
         if match:
             self.is_remote = True
-            self.user_at_host = self.match.group(1)
-            self.remote_export_path = self.match.group(2)
+            self.user_at_host = match.group(1)
+            self.remote_export_path = match.group(2)
         else:
             self.is_remote = False
             self.user_at_host = ""
