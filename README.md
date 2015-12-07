@@ -182,8 +182,98 @@ If we forget, we can ask it again. ```python wordfreq.py master``` will give jus
 The worker runs locally unless we tell it to run somewhere else. To do that, I can just login to another box and start it. Nothing's really different until I want the master to talk to it. Then I have to tell the master where it is. Let's throw everything at a remote worker. Shell in and do:
 
 ```
+cd wordfreq
 python wordfreq.py clean
 cp data/test/*.txt data/input
-
+python wordfreq.py -V3 worker
 
 ```
+Now you'll see less verbose output:
+
+```
+worker started
+Wrote word_freq of data/input/tom_sawyer.txt to data/output/5813c2959155df3aea5b39a61d3b60e4edc7001d.json
+Exported data/output/5813c2959155df3aea5b39a61d3b60e4edc7001d.json to data/export/5813c2959155df3aea5b39a61d3b60e4edc7001d.json
+Wrote word_freq of data/input/moby_dick.txt to data/output/2bdd11f1adf0eb980a9a1f53e80de0f34e7c8c17.json
+Exported data/output/2bdd11f1adf0eb980a9a1f53e80de0f34e7c8c17.json to data/export/2bdd11f1adf0eb980a9a1f53e80de0f34e7c8c17.json
+Wrote word_freq of data/input/frankenstein.txt to data/output/25342d17955ad31d38799dfc296eb20df19d7d4b.json
+Exported data/output/25342d17955ad31d38799dfc296eb20df19d7d4b.json to data/export/25342d17955ad31d38799dfc296eb20df19d7d4b.json
+Wrote word_freq of data/input/tale_two_cities.txt to data/output/b9520aafda30b06e5273455ee2b7b2e65edac361.json
+Exported data/output/b9520aafda30b06e5273455ee2b7b2e65edac361.json to data/export/b9520aafda30b06e5273455ee2b7b2e65edac361.json
+Wrote word_freq of data/input/huck_finn.txt to data/output/ee3bfbe832840fe853b49a02c20c2a7e795834c9.json
+Exported data/output/ee3bfbe832840fe853b49a02c20c2a7e795834c9.json to data/export/ee3bfbe832840fe853b49a02c20c2a7e795834c9.json
+Wrote word_freq of data/input/dracula.txt to data/output/84da50d2770fbbac0ebf3825febb74f488217cea.json
+Exported data/output/84da50d2770fbbac0ebf3825febb74f488217cea.json to data/export/84da50d2770fbbac0ebf3825febb74f488217cea.json
+Wrote word_freq of data/input/pride_and_prejudice.txt to data/output/b2573cbe40d322bf40f147f28333ec001bc5c6a1.json
+Exported data/output/b2573cbe40d322bf40f147f28333ec001bc5c6a1.json to data/export/b2573cbe40d322bf40f147f28333ec001bc5c6a1.json
+Wrote word_freq of data/input/sherlock_holmes.txt to data/output/3a1bee8877c1ed268abf05ab3b008256fa1e4a8e.json
+Exported data/output/3a1bee8877c1ed268abf05ab3b008256fa1e4a8e.json to data/export/3a1bee8877c1ed268abf05ab3b008256fa1e4a8e.json
+Wrote word_freq of data/input/alice_wonderland.txt to data/output/c3dc0148cd04c1f69e837ef1f6f2cfb3efd9033a.json
+Exported data/output/c3dc0148cd04c1f69e837ef1f6f2cfb3efd9033a.json to data/export/c3dc0148cd04c1f69e837ef1f6f2cfb3efd9033a.json
+Wrote word_freq of data/input/pledge.txt to data/output/cfaf9930079651c7c2d8d113b67a144ee8727761.json
+Exported data/output/cfaf9930079651c7c2d8d113b67a144ee8727761.json to data/export/cfaf9930079651c7c2d8d113b67a144ee8727761.json
+```
+Suppose that I followed the configuration section above and set up $W1 as a remote ssh_path. Maybe something like ```W1=bryan@mybox.mydomain.com:src/wordfreq```. Then I can invoke the master to talk to the worker like this:
+
+```
+python wordfreq.py -V3 master $W1
+```
+and it will show my files moving across he wire and being tallied:
+
+```
+worker started
+synching btaylor@chess.clintlabs.us:wordfreq
+fetched btaylor@chess.clintlabs.us:wordfreq/data/export/25342d17955ad31d38799dfc296eb20df19d7d4b.json to data/import
+fetched btaylor@chess.clintlabs.us:wordfreq/data/export/2bdd11f1adf0eb980a9a1f53e80de0f34e7c8c17.json to data/import
+fetched btaylor@chess.clintlabs.us:wordfreq/data/export/3a1bee8877c1ed268abf05ab3b008256fa1e4a8e.json to data/import
+fetched btaylor@chess.clintlabs.us:wordfreq/data/export/5813c2959155df3aea5b39a61d3b60e4edc7001d.json to data/import
+fetched btaylor@chess.clintlabs.us:wordfreq/data/export/84da50d2770fbbac0ebf3825febb74f488217cea.json to data/import
+fetched btaylor@chess.clintlabs.us:wordfreq/data/export/b2573cbe40d322bf40f147f28333ec001bc5c6a1.json to data/import
+fetched btaylor@chess.clintlabs.us:wordfreq/data/export/b9520aafda30b06e5273455ee2b7b2e65edac361.json to data/import
+fetched btaylor@chess.clintlabs.us:wordfreq/data/export/c3dc0148cd04c1f69e837ef1f6f2cfb3efd9033a.json to data/import
+fetched btaylor@chess.clintlabs.us:wordfreq/data/export/cfaf9930079651c7c2d8d113b67a144ee8727761.json to data/import
+fetched btaylor@chess.clintlabs.us:wordfreq/data/export/ee3bfbe832840fe853b49a02c20c2a7e795834c9.json to data/import
+the: 56591
+and: 37974
+to: 28051
+of: 27966
+a: 22914
+i: 22160
+in: 17387
+it: 15189
+that: 14591
+was: 13184
+```
+If we have multiple workers, we can just add more:
+
+```
+python wordfreq.py master $W1 $W2 $W3
+```
+We can also ask for data injestion remotely using rget instead of get:
+
+```
+python wordfreq.py rget $W1 http://www.constitution.org/usdeclar.txt
+```
+Finally, we can run the worker in a loop with worker-loop and stop it with worker-stop. We can run the master in a loop with master-loop and master-stop.
+
+```
+# on the worker node
+python wordfreq.py clean
+python wordfreq.py worker-loop
+```
+```
+# on the master node
+python wordfreq.py clean
+python wordfreq.py -V3 master-loop $W1
+```
+While these run, I should be able to safely injest files that will be processed in near real time.
+
+```
+# on the MASTER node (or anywhere that can connect)
+python wordfreq.py rget $W1 data/test/alice_wonderland.txt
+python wordfreq.py rget $W1 data/test/sherlock_holmes.txt
+python wordfreq.py rget $W1 http://www.constitution.org/usdeclar.txt
+
+```
+Finally, we stop the loops via ```python wordfreq.py master-stop``` on the master (in a separate shell) and ```python wordfreq.py worker-stop```.
+
