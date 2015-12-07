@@ -213,7 +213,7 @@ class RemoteWorker(object):
         if self.is_remote:
             raw_output = subprocess.check_output(["ssh", self.user_at_host, cmd])
         else:
-            raw_output = subprocess.check_output(["python","wordfreq.py", verbose_flag, "get",uris_str])
+            raw_output = subprocess.check_output(["python","wordfreq.py", verbosity, "get",uris_str])
 
         if Config.verbose > 2:
           print("invoked remote injest on worker at %s for %s" %
