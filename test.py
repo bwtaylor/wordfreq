@@ -85,15 +85,14 @@ class TestWorker(BaseTest):
 class TestRemoteWorker(BaseTest):
   
     def test_fetch(self):
-        os.system("cp testdata/fetch/*.json %s" % Config.export_path)
-        remote_worker = RemoteWorker(".")
-        for filename in ls(Config.export_path):
-            remote_worker.fetch(basename(filename))
-        self.assertEqual(len(ls(Config.export_path)), len(ls(Config.import_path)) )
+        pass #covered by test_synch
 
     
     def test_synch(self):
-        self.fail('not implemented')
+        os.system("cp testdata/fetch/*.json %s" % Config.export_path)
+        remote_worker = RemoteWorker(".")
+        remote_worker.synch()
+        self.assertEqual(len(ls(Config.export_path)), len(ls(Config.import_path)) )
       
 class TestMaster(BaseTest):
   
