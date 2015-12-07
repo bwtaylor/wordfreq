@@ -407,7 +407,7 @@ def main(argv):
         if os.path.isfile(Config.worker_pidfile):
             sys.exit("pidfile exists: worker already running")
         else:
-            file(Config.worker+pidfile, 'w').write(pid)
+            file(Config.worker_pidfile, 'w').write(pid)
         worker = Worker()
         
         go = True
