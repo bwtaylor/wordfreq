@@ -21,7 +21,7 @@ from urlparse import urlparse
 class Config(object):
     '''Holds config globals. There's probably a more pythonic way to do this.
     '''
-    verbose = 1
+    verbose = 2
     injest_path = "data/injest"
     input_path = "data/input"
     output_path = "data/output"
@@ -98,7 +98,7 @@ class Worker(object):
             return ''
         else: 
             self.write_freq(output_filepath, Counter(split_regex.findall(raw_file_contents)))
-            if Config.verbose > 3:
+            if Config.verbose > 2:
                 print("Wrote word_freq of %s to %s" % (filepath, output_filepath) )
             return output_filepath 
             
@@ -178,7 +178,7 @@ class RemoteWorker(object):
             if Config.verbose > 2 and returncode==0:
                 print("fetched %s to %s" % (remote_filename, Config.import_path))
         else:                 
-            if Config.verbose > 2:
+            if Config.verbose > 3:
                 print("skip fetch of %s as %s already exist" % 
                       (remote_filename, completed_filename) )
 
@@ -311,7 +311,7 @@ class Master(object):
         total_freq = self.read_freq(self.total_filename)
         for (k,v) in total_freq.most_common(n):
             output += "%s: %s\n" % (k,v)
-        if Config.verbose > 2:
+        if Config.verbose > 1:
           print(output)
         return output
             
@@ -336,9 +336,15 @@ def ls(path):
     return [ join(path, f) for f in listdir(path) if isfile(join(path, f)) and not f.startswith('.') ]
     
 def check(check_only):
+    """Check that directories are on the same disk partition that need to be
+    to support atomic file moves.
+    """
     if (stat(Config.output_path).st_dev != stat(Config.export_path).st_dev):
         message = "Export path %s must be same partition as Output path %s for atomic copy"
         sys.exit(message % (export_path, import_path))
+    if (stat(Config.injest_path).st_dev != stat(Config.input_path).st_dev):
+        message = "Injest path %s must be same partition as Input path %s for atomic copy"
+        sys.exit(message % (injest_path, input_path))
     if check_only:
         if Config.verbose > 3:
             print('check flag set, exiting after checking')

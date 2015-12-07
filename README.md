@@ -15,31 +15,175 @@ Install the code by using git:
 ```
 git clone https://github.com/bwtaylor/wordfreq.git
 ```
+No libraries are required.
 
 ### Configuration
 
 Setup ssh certificates so that files can be copied via scp from each worker's user@host to the master.
 
+For each such worker, we will use its ssh_host value with path. Any number positive number of workers is supported. Workers may also be local by simply supplying a file path. For convenience, set these to an environment shell variable on the master node.
+
+The end to end test to integrate remote nodes synch will fail unless at least one such node is configured. This is done by the environment variable TEST_REMOTE_WORKERS, which must be set.
+
+```
+W1=user@host:/path/to/wordfreq
+W2=user2@host2:/path2/to/wordfreq
+W3=.
+W4=other/local/worfreq/repo
+
+export TEST_REMOTE_WORKERS="$W1 $W2"
+```
+
 ### Processing Flow
 
-We use a file based processing flow. Since file writes are not atomic, we always follow a write
-with a copy, so that downstream operations are never performed on partially written files. 
+We use a file based processing flow. Since file writes are not atomic, we sometimes must write to an intermediate directory and copy completed files to the directory where they become visible to other processes. This pattern prevents downstream operations are never performed on partially written files. 
 
 The following directories represent the various stages of processing:
 
 ```
+data/injest    - workers download files to here and move fully written files to data/input
 data/input     - each worker looks here for text files to process
-data/output    - each worker drops word frequency json files here
-data/export    - eacher worker does an atomic copy of completed world frequency json files here
+data/output    - each worker creates frequency json files here
+data/export    - workers do an atomic copy of completed world frequency json files here
 data/import    - the master fetcher does an atomic copy of staging files here
 data/completed - the master adder does an atomic copy of processed word frequency files here
+data           - the final tally file is typically written here, typically as data/total.json
 ```
 
-There are three processing components:
+### Code Components
 
-* Worker Word Frequency Generator (word_freq.py) - processes raw text into word frequency json files
-* Master Fetcher (fetcher.py) - copies word frequency json files from workers to master via scp
-* Master Adder (adder.py) - aggregates word frequencies into the overall total
+There are five processing components, all in the wordfreq.py file. The first four are classes contained within the overall script.
 
-Note that data acquisition, obtaining the raw text data and putting it in the appropriate input directory, is not specified by the problem. Some sample and test data is provided. Test and sample processing will copy data files as part of setup.
- 
+* Worker - processes raw text into word frequency json files
+* RemoteWorker - copies word frequency json files from workers to master via scp
+* Master Adder - aggregates word frequencies into the overall total
+* Config - struct for holding configuration variables
+* top level script - handles CLI and other convenience functions
+
+### Tutorial
+
+Make sure you've set up ssh certificates and the ssh_paths in environment variables as shown in the configuration setion above.
+
+Start by running the tests, with minor verbosity. Verbosity ranges 0 to 4 and defaults to 1. The -v flag sets it to 2, while -Vn (capital)sets it to n.To set it to other values, use -V3 or -V4 or -V0 instead of -v.
+
+```
+cd src/wordfreq
+python wordfreq.py -v test
+```
+If you get an error in test_remote_workers, you didn't set your configuration properly. This will usually show as a KeyError: 'TEST_REMOTE_WORKERS'.
+
+The worker is responsible for injesting data. Let's copy the pledge of allegiance into it's input folder and invoke the worker locally. Some sample data is provided in data/test
+
+```
+less data/test/pledge.txt
+cp data/test/pledge.txt data/input
+python wordfreq.py worker
+```
+It completes, but doesn't tell us much. 
+
+```
+python wordfreq.py clean
+cp data/test/pledge.txt data/input
+python wordfreq.py -V4 worker
+```
+This should show some output:
+
+```
+worker started
+processing data/input/pledge.txt
+Wrote word_freq of data/input/pledge.txt to data/output/cfaf9930079651c7c2d8d113b67a144ee8727761.json
+Exported data/output/cfaf9930079651c7c2d8d113b67a144ee8727761.json to data/export/cfaf9930079651c7c2d8d113b67a144ee8727761.json
+done processing input
+```
+Some things to note:
+* Word frequency files are written to data/output
+* Output is a json file
+* The name of the file is a sha1 (of the lowercase input text)
+* Once they are written, files are copied to data/export and where they can be fetched
+
+Let's look at the output ```cat data/export/cfaf9930079651c7c2d8d113b67a144ee8727761.json```
+
+```
+{"and": 2, "all": 1, "pledge": 1, "allegiance": 1, "america": 1, "one": 1, "states": 1, "united": 1, "stands": 1, "for": 2, "justice": 1, "god": 1, "liberty": 1, "to": 2, "republic": 1, "which": 1, "under": 1, "it": 1, "flag": 1, "nation": 1, "with": 1, "indivisible": 1, "i": 1, "of": 2, "the": 3}
+```
+It's a JSON map with words as keys and positive integer counts. It's OK to copy data right into /data/input only if you know that the worker is off. It has a mode where it polls continually to look for input and when using this, there is a real danger that it will find a half written file, so the preferred way to injest data is with the get command (and rget for remote invokation).
+
+```
+python wordfreq.py clean
+python wordfreq.py get data/test/pledge.txt
+python wordfreq.py -V4 worker
+```
+Same result. SAFE! 
+
+Try the last command again: ```python wordfreq.py -V4 worker```
+
+```
+worker started
+processing data/input/pledge.txt
+Skipped word_freq of data/input/pledge.txt as data/export/cfaf9930079651c7c2d8d113b67a144ee8727761.json already exists
+done processing input
+```
+Notice that it skipped the input file. It's gloriously lazy about redoing work it knows it's already done.
+
+You don't have to injest local files. They can be URIs: ```python wordfreq.py -V4 get http://www.constitution.org/usdeclar.txt``` will output:
+
+```
+worker started
+injested http://www.constitution.org/usdeclar.txt to data/input/usdeclar.txt
+```
+Running the worker on max verbosity will report
+
+```
+worker started
+processing data/input/pledge.txt
+Skipped word_freq of data/input/pledge.txt as data/export/cfaf9930079651c7c2d8d113b67a144ee8727761.json already exists
+processing data/input/usdeclar.txt
+Wrote word_freq of data/input/usdeclar.txt to data/output/b21c7a6e4a343caad76b8d440229ffe340b65802.json
+Exported data/output/b21c7a6e4a343caad76b8d440229ffe340b65802.json to data/export/b21c7a6e4a343caad76b8d440229ffe340b65802.json
+done processing input
+```
+Now there are two files in the export folder. They will pile up forever unless we clean them, but it's probably OK to let them pile up. If you really needed the disk space, you could delete their contents, because it's just the file name that's preventing reprocessing.
+
+Now we can run the master and have it fetch these two word frequency files, add them up and show the top 10 words in the output. We're still running everything locally, though.
+
+We run the master with max verbosity with the command:
+
+```
+python wordfreq.py -V4 master
+```
+and it reports back:
+
+```
+worker started
+synching .
+Executing: cp -- ./data/export/b21c7a6e4a343caad76b8d440229ffe340b65802.json data/import
+fetched ./data/export/b21c7a6e4a343caad76b8d440229ffe340b65802.json to data/import
+Executing: cp -- ./data/export/cfaf9930079651c7c2d8d113b67a144ee8727761.json data/import
+fetched ./data/export/cfaf9930079651c7c2d8d113b67a144ee8727761.json to data/import
+merging words frequencies from data/import/b21c7a6e4a343caad76b8d440229ffe340b65802.json
+  found 1341 occurances of 541 words
+  total 1341 occurances of 541 words
+merging words frequencies from data/import/cfaf9930079651c7c2d8d113b67a144ee8727761.json
+  found 31 occurances of 25 words
+  total 1372 occurances of 546 words
+of: 82
+the: 81
+to: 67
+and: 59
+for: 31
+our: 26
+in: 21
+their: 20
+has: 20
+he: 19
+```
+If we forget, we can ask it again. ```python wordfreq.py master``` will give just the results again.
+
+The worker runs locally unless we tell it to run somewhere else. To do that, I can just login to another box and start it. Nothing's really different until I want the master to talk to it. Then I have to tell the master where it is. Let's throw everything at a remote worker. Shell in and do:
+
+```
+python wordfreq.py clean
+cp data/test/*.txt data/input
+
+
+```
