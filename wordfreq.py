@@ -7,6 +7,7 @@ import os
 import sys
 import getopt
 import subprocess
+import time
 import unittest
 
 from collections import Counter
@@ -20,7 +21,7 @@ from urlparse import urlparse
 class Config(object):
     '''Holds config globals. There's probably a more pythonic way to do this.
     '''
-    verbose = False
+    verbose = 0
     injest_path = "data/injest"
     input_path = "data/input"
     output_path = "data/output"
@@ -28,6 +29,7 @@ class Config(object):
     import_path = "data/import"    
     complete_path = "data/complete"
     default_total_filename="data/total.json"
+    pidfile = "worker.pid"
 
 class Worker(object):
 
@@ -37,7 +39,7 @@ class Worker(object):
     '''
           
     def __init__(self):
-        if Config.verbose:
+        if Config.verbose > 3:
             print("worker started")
  
     def injest(self,uri):
@@ -51,7 +53,7 @@ class Worker(object):
         filename = basename(uri)
         injest_filename = Config.injest_path+"/"+filename
         input_filename = Config.input_path+"/"+filename
-        if Config.verbose:
+        if Config.verbose  > 0:
             print("injested %s to %s" %(uri,input_filename))
         parsed_uri = urlparse(uri)
         if parsed_uri.netloc:
@@ -89,13 +91,13 @@ class Worker(object):
         split_regex = re.compile('[a-z0-9]+')
         
         if isfile(export_filepath): 
-            if Config.verbose:
+            if Config.verbose > 4:
                 print( "Skipped word_freq of %s as %s already exists" % 
                        (filepath, export_filepath) )
             return ''
         else: 
             self.write_freq(output_filepath, Counter(split_regex.findall(raw_file_contents)))
-            if Config.verbose:
+            if Config.verbose > 4:
                 print("Wrote word_freq of %s to %s" % (filepath, output_filepath) )
             return output_filepath 
             
@@ -110,7 +112,7 @@ class Worker(object):
         json_filename = basename(output_filepath)
         export_filepath = join(Config.export_path, json_filename)
         move(output_filepath, export_filepath)
-        if Config.verbose:
+        if Config.verbose > 3:
             print("Exported %s to %s" % (output_filepath, export_filepath)) 
 
     def process_input(self,input_path="data/input"):
@@ -120,11 +122,11 @@ class Worker(object):
         """
         
         for input_filepath in ls(input_path):
-            if Config.verbose:
+            if Config.verbose > 4:
                 print("processing %s" % input_filepath)
             self.export(self.word_freq(input_filepath))
         
-        if Config.verbose:                                        
+        if Config.verbose > 4:                                        
             print("done processing input")
     
 
@@ -165,12 +167,17 @@ class RemoteWorker(object):
         remote_filename = self.ssh_path+"/"+Config.export_path+"/"+filename
         completed_filename = Config.complete_path+"/"+filename
 
+        if Config.verbose > 4:                                                             
+          verbose_flag = "-v"
+        else:
+          verbose_flag = "-q"
+          
         if not isfile(completed_filename):
-            returncode = subprocess.call(["scp", remote_filename, Config.import_path])
-            if Config.verbose and returncode==0:
+            returncode = subprocess.call(["scp", verbose_flag, remote_filename, Config.import_path])
+            if Config.verbose > 3 and returncode==0:
                 print("fetched %s to %s" % (remote_filename, Config.import_path))
         else:                 
-            if Config.verbose:
+            if Config.verbose > 3:
                 print("skip fetch of %s as %s already exist" % 
                       (remote_filename, completed_filename) )
 
@@ -181,7 +188,7 @@ class RemoteWorker(object):
         
         remote_export_path = self.remote_path+"/"+Config.export_path
         
-        if Config.verbose:
+        if Config.verbose > 3:
             print("synching %s" % self.ssh_path)
             
         if self.is_remote:
@@ -198,23 +205,46 @@ class RemoteWorker(object):
     def remote_injest(self,uris):
         """Remotely invokes the injest command of a worker."""
 
-        print("uris=%s" % uris)
         uris_str = " ".join(uris)
-        if Config.verbose:                                                             
-          verbose_flag = "-v"
-        else:
-          verbose_flag = ""
-        cmd = "cd %s; python wordfreq.py %s get %s" % (self.remote_path, verbose_flag, uris_str)
+        verbosity = "-V%s" % Config.verbose
+
+        cmd = "cd %s; python wordfreq.py %s get %s" % (self.remote_path, verbosity, uris_str)
 
         if self.is_remote:
             raw_output = subprocess.check_output(["ssh", self.user_at_host, cmd])
         else:
             raw_output = subprocess.check_output(["python","wordfreq.py", verbose_flag, "get",uris_str])
 
-        if Config.verbose:
+        if Config.verbose > 3:
           print("invoked remote injest on worker at %s for %s" %
                 (self.ssh_path, uris_str) )
           print("remote invocation output: %s" % raw_output )
+          
+    def process_input(self):
+        '''Remotely invokes the worker to process its input'''
+        
+        verbosity = "-V%s" % Config.verbose
+
+        cmd = "cd %s; python wordfreq.py %s worker" % (self.remote_path, verbosity)
+        if self.is_remote:
+            raw_output = subprocess.check_output(["ssh", self.user_at_host, cmd])
+        else:
+            raw_output = subprocess.check_output([cmd])
+        
+        if Config.verbose > 3:
+           print( raw_output ) 
+          
+    def clean(self):
+        '''cleans all the files out of the directory structure processing
+        pipeline.
+        '''
+
+        if self.is_remote:
+            cmd = "cd %s; python wordfreq.py clean" % (self.remote_path)
+            subprocess.call(["ssh", self.user_at_host, cmd])
+        else:
+            path = self.remote_path;
+            os.system("rm -f %s/data/test*.json %s/data/*/*.json %s/data/input/*.txt" % (path,path,path) )
       
 class Master(object):
   
@@ -253,7 +283,7 @@ class Master(object):
         total_counter = self.read_freq(self.total_filename)
         total_counter.update(freq_counter)
         self.local_worker.write_freq(self.total_filename, total_counter)
-        if Config.verbose:
+        if Config.verbose > 4:
             print("  found %s occurances of %s words" % 
                   ( sum(freq_counter.values()), len(freq_counter)) )
             print("  total %s occurances of %s words" % 
@@ -265,7 +295,7 @@ class Master(object):
         where all the completed files go.
         """
         for freq_filename in ls(Config.import_path):
-            if Config.verbose:
+            if Config.verbose > 4:
                 print("merging words frequencies from %s" % freq_filename)
             self.update_total(self.read_freq(freq_filename))
             move(freq_filename, Config.complete_path)
@@ -277,7 +307,7 @@ class Master(object):
         total_freq = self.read_freq(self.total_filename)
         for (k,v) in total_freq.most_common(n):
             output += "%s: %s\n" % (k,v)
-        if Config.verbose:
+        if Config.verbose > 3:
           print(output)
         return output
             
@@ -300,14 +330,13 @@ def ls(path):
     """Utility function to simply list the (non-hidden) contents of a directory.
     Returns a list of relative paths to each file of the dirctory."""
     return [ join(path, f) for f in listdir(path) if isfile(join(path, f)) and not f.startswith('.') ]
-                                                             
-        
+    
 def check(check_only):
     if (stat(Config.output_path).st_dev != stat(Config.export_path).st_dev):
         message = "Export path %s must be same partition as Output path %s for atomic copy"
         sys.exit(message % (export_path, import_path))
     if check_only:
-        if Config.verbose:
+        if Config.verbose > 4:
             print('check flag set, exiting after checking')
         sys.exit()
         
@@ -325,7 +354,7 @@ def main(argv):
     outfile = Config.default_total_filename
     
     try:
-        opts, args = getopt.getopt(argv,"hvco:",['help','verbose','check','out='])
+        opts, args = getopt.getopt(argv,"hvV:co:",['help','verbose','verbosity=','check','out='])
     except getopt.GetoptError:
         print("error")
         help()
@@ -336,7 +365,9 @@ def main(argv):
             help()
             sys.exit()
         elif opt in ("-v", "--verbose"):
-            Config.verbose=True
+            Config.verbose=1
+        elif opt in ("-V", "--verbosity="):
+            Config.verbose=int(arg)
         elif opt in ("-c", "--check"):
             check_only = True
         elif opt in ("-o", "--out="):
@@ -350,6 +381,29 @@ def main(argv):
     if mode == "worker":
         check(check_only)
         Worker().process_input()
+        
+    elif mode == "worker-loop":
+        pid = str(os.getpid())
+        if os.path.isfile(Config.pidfile):
+            sys.exit("pidfile exists: worker already running")
+        else:
+            file(Config.pidfile, 'w').write(pid)
+        worker = Worker()
+        
+        go = True
+        while go:
+            worker.process_input()
+            time.sleep(1)
+            try:
+                with open(Config.pidfile) as f:
+                    newpid = f.read()
+                    go = (newpid == pid)
+            except IOError:
+                go = False
+            
+    elif mode == "worker-stop":
+        os.system("rm -f %s" % pidfile)
+        
     elif mode == "master":
         if len(args[1:]) > 0:
             ssh_paths = args[1:]
@@ -359,22 +413,30 @@ def main(argv):
         master.synch_all_workers()
         master.tally()
         master.output(10)
+        
     elif mode == "get":
         worker = Worker()
         for uri in args[1:]:
             worker.injest(uri)
+            
     elif mode == "rget":
         if len(args)<2:
             help(mode)
-        worker = RemoteWorker(args[1])
+        remote_worker = RemoteWorker(args[1])
         uris = args[2:]
-        worker.remote_injest(uris)
+        remote_worker.remote_injest(uris)
     elif mode == "clean":
-        os.system("rm -f data/test*.json data/*/*.json data/input/*.txt")
+        if len(args)<2:
+          ssh_path="."
+        else:
+          ssh_path=args[1]
+        remote_worker = RemoteWorker(ssh_path)
+        remote_worker.clean()
+        
     elif mode == "test":
         suite = unittest.TestLoader().discover('.')
         os.system("rm -f data/test*.json")
-        unittest.TextTestRunner(verbosity={True:3,False:2}[Config.verbose]).run(suite)
+        unittest.TextTestRunner(verbosity=int(Config.verbose)).run(suite)
     
 if  __name__ == "__main__":
     main(sys.argv[1:])

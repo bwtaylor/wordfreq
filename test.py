@@ -14,8 +14,7 @@ class BaseTest(unittest.TestCase):
 
     def setUp(self):
         os.system("rm -f data/input/*.txt data/*/*.json data/*.json")
-        if self.unittest_verbosity() > 2:
-            Config.verbose=True
+        Config.verbose=self.unittest_verbosity()
 
     def unittest_verbosity(self):
         """Return the verbosity setting of the currently running TextTestRunner,
@@ -200,10 +199,12 @@ my: 3040
         
         for worker in workers:
             remote_worker = RemoteWorker(worker)
+            remote_worker.clean()
             file_uris = [ "testdata/remote_workers/dracula.txt",
                           "testdata/remote_workers/frankenstein.txt" ]
             remote_worker.remote_injest(file_uris)
-            master.synch_all_workers()
+            remote_worker.process_input()
+            master.synch_all_workers() #each pass through, only one will have the two files
             master.tally()
             output=master.output(10)
             self.assertEqual(output, expected_output, "worker %s output wrong" % remote_worker.ssh_path)
