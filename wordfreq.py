@@ -11,12 +11,15 @@ import unittest
 
 from collections import Counter
 from os import listdir, stat
-from os.path import isfile, join, basename
+from os.path import isfile, join, basename, abspath
 from shutil import move
 from hashlib import sha1
-from urllib import urlretrieve
+from urllib import urlretrieve, pathname2url
+from urlparse import urlparse
 
 class Config(object):
+    '''Holds config globals. There's probably a more pythonic way to do this.
+    '''
     verbose = False
     injest_path = "data/injest"
     input_path = "data/input"
@@ -26,29 +29,55 @@ class Config(object):
     complete_path = "data/complete"
     default_total_filename="data/total.json"
 
-class Worker(object): 
+class Worker(object):
+
+    '''The Worker handles turning raw text files into word frequency JSON files.
+    This includes safe concurrent file access during injestion and export. Only
+    one worker process should run over a given direcory structure.
+    '''
           
     def __init__(self):
         if Config.verbose:
             print("worker started")
  
     def injest(self,uri):
+        """Fetch file from uri (or uri converted from file path) and once
+        fetch is complete, copy it. The client must assure the file at the
+        URI is fully written prior to call. It is safe to run this concurrently
+        with a worker running process_input(), as only fully formed files are
+        moved to the input_path. This allows a Remote Worker may invoke this
+        via ssh at the same time that another Worker is running.
+        """
         filename = basename(uri)
         injest_filename = Config.injest_path+"/"+filename
         input_filename = Config.input_path+"/"+filename
-        urlretrieve(uri,injest_filename)
+        parsed_uri = urlparse(uri)
+        if parsed_uri.netloc:
+            urlretrieve(uri,injest_filename)
+        else:
+            #convert possibly relative filepath to file: scheme uri
+            file_uri = 'file:///' + pathname2url(abspath(parsed_uri.path))
+            urlretrieve(uri,injest_filename)
         move(injest_filename,input_filename)
         if Config.verbose:
             print("injested %s to %s" %(uri,input_filename))
   
   
     def write_freq(self,filepath,counter):
+        """Spool out a counter object to a JSON file with specified filepath.
+        """
         with io.open(filepath, 'w', encoding='utf8') as json_file:
             data = json.dumps(counter, ensure_ascii=False, encoding='utf8')
             json_file.write(data) 
             
 
     def word_freq(self,filepath):
+        """Read the raw text input at filepath, convert to lowercaes, check
+        if we've processed it before (using sha1 of lowercase content), and if
+        not, split into words, and use a collections.Counter to tally word
+        frequencies and write the output to disk. Return the output filepath
+        if it was written, or empty string if it already existed.
+        """
       
         with open(filepath) as f:
             raw_file_contents = f.read().lower()
@@ -72,6 +101,10 @@ class Worker(object):
             
   
     def export(self,output_filepath):
+        """Calls shutil.move on output file to make it visible in the export
+        folder, so that RemoteWorkers fetching from the export folder 
+        will never see partially written files.
+        """
         if output_filepath == '':
             return
         json_filename = basename(output_filepath)
@@ -81,6 +114,10 @@ class Worker(object):
             print("Exported %s to %s" % (output_filepath, export_filepath)) 
 
     def process_input(self,input_path="data/input"):
+        """Loop over each file on the input path and export its word
+        frequency, so that it becomes visible to RemoteWorkers in an atomic
+        way.
+        """
         
         for input_filepath in ls(input_path):
             if Config.verbose:
@@ -92,7 +129,12 @@ class Worker(object):
     
 
 
-class RemoteWorker(object):    
+class RemoteWorker(object): 
+  
+    """The RemoteWorker handles remote file synchning by the master to a
+    given worker. Integration occurs vis ssh/scp if the Worker location is
+    truly remote and via local operations if not.
+    """
     
     def __init__(self, ssh_path):
       
@@ -104,16 +146,25 @@ class RemoteWorker(object):
         if match:
             self.is_remote = True
             self.user_at_host = match.group(1)
-            self.remote_export_path = match.group(2)
+            self.remote_export_path = match.group(2)+"/"+Config.export_path
         else:
+            # must be a local path
             self.is_remote = False
             self.user_at_host = ""
-            self.remote_export_path = ssh_path
+            self.remote_export_path = ssh_path+"/"+Config.export_path
 
 
     def fetch(self,filename):
-        remote_filename = self.ssh_path+"/"+filename
+        """Use scp to physically move a file from the remote worker to the 
+        import path. Will exclude files that have been processed. It's assumed
+        the master only activates one Remote Worker at a time, so we don't worry
+        about concurrent fetchings of the same file. The Master is responsible
+        for assuring
+        """
+        
+        remote_filename = self.ssh_path+"/"+Config.export_path+"/"+filename
         completed_filename = Config.complete_path+"/"+filename
+
         if not isfile(completed_filename):
             returncode = subprocess.call(["scp", remote_filename, Config.import_path])
             if Config.verbose and returncode==0:
@@ -122,22 +173,51 @@ class RemoteWorker(object):
             if Config.verbose:
                 print("skip fetch of %s as %s already exist" % 
                       (remote_filename, completed_filename) )
-                
+
     def synch(self):
+        """Uses ssh to list the files in the remote worker's export directory,
+        and then fetches them.
+        """
         if Config.verbose:
             print("synching %s" % self.ssh_path)
+            
         if self.is_remote:
             cmd = "ls %s" % self.remote_export_path
             raw_output = subprocess.check_output(["ssh", self.user_at_host, cmd])
+
         else:
             raw_output = subprocess.check_output(["ls", self.remote_export_path])
-        lines = raw_output.split('\n')
-        for filename in lines[0:-1]:
-            self.fetch(filename)
-  
 
+        filenames = raw_output.split('\n')[0:-1] #drop the last empty line
+        for filename in filenames:
+            self.fetch(basename(filename))
+
+    def remote_injest(self,uris):
+        """Remotely invokes the injest command of a worker."""
+
+        uris_str = " ".join(uris)
+        if Config.verbose:                                                             
+          verbose_flag = "-v"
+        else:
+          verbose_flag = ""
+        cmd = "python wordfreq.py %s get %s" % (verbose_flag, uris_str)
+
+        if self.is_remote:
+            raw_output = subprocess.check_output(["ssh", self.user_at_host, cmd])
+        else:
+            raw_output = subprocess.check_output(["python","wordfreq.py", verbose_flag, "get",uris_str])
+
+        if Config.verbose:
+          print("invoked remote injest on worker at %s for %s" %
+                (self.ssh_path, uris_str) )
+          print("remote invocation output: %s" % raw_output )
       
 class Master(object):
+  
+    """The Master is responsible for coordinating RemoteWorkers to synch to
+    each worker's word frequency files, tally them, update the running total,
+    and produce output.
+    """
     
     
     def __init__(self, ssh_paths, total_filename=Config.default_total_filename):
@@ -146,10 +226,14 @@ class Master(object):
         self.local_worker = Worker()
             
     def synch_all_workers(self):
+        """Loop over every Remote Worker in turn and ask it to synch.
+        """
         for remote_worker in self.remote_workers:
             remote_worker.synch()
       
     def read_freq(self,filename):
+        """Read a JSON file into a counter.
+        """
         try:
             with open(filename) as f:
                 freq_raw = f.read()
@@ -158,6 +242,10 @@ class Master(object):
             return Counter()
     
     def update_total(self,freq_counter):
+        """Takes in a counter of word frequencies, reads a counter
+        representing the running total from the appropriate file, adds
+        the former to the latter, and writes it out again.
+        """
         total_counter = self.read_freq(self.total_filename)
         total_counter.update(freq_counter)
         self.local_worker.write_freq(self.total_filename, total_counter)
@@ -168,6 +256,10 @@ class Master(object):
                   (sum(total_counter.values()), len(total_counter)) )
       
     def tally(self):
+        """Read each word frequency files in the import path and
+        add it to the running total, then move the file to the directory
+        where all the completed files go.
+        """
         for freq_filename in ls(Config.import_path):
             if Config.verbose:
                 print("merging words frequencies from %s" % freq_filename)
@@ -175,6 +267,9 @@ class Master(object):
             move(freq_filename, Config.complete_path)
     
     def output(self,n=10,output=""):
+        """Read the totals from the file that tracks them and output the
+        top n most frequent words.
+        """
         total_freq = self.read_freq(self.total_filename)
         for (k,v) in total_freq.most_common(n):
             output += "%s: %s\n" % (k,v)
@@ -182,9 +277,11 @@ class Master(object):
           print(output)
         return output
             
-           
-# Utility function to deal with python's json library converting strings to unicode 
 def clean_unicode(input):
+    """Utility function to deal with python's json library converting
+    strings to the unicode data type, which obfuscates things since we
+    usually deal with ascii or utf-8 strings directl.
+    """
     if isinstance(input, dict):
         return { clean_unicode(key):clean_unicode(value) 
                  for key,value in input.iteritems() }
@@ -196,7 +293,9 @@ def clean_unicode(input):
         return input
         
 def ls(path):
-  return [ join(path, f) for f in listdir(path) if isfile(join(path, f)) and not f.startswith('.') ]  
+    """Utility function to simply list the (non-hidden) contents of a directory.
+    Returns a list of relative paths to each file of the dirctory."""
+    return [ join(path, f) for f in listdir(path) if isfile(join(path, f)) and not f.startswith('.') ]
                                                              
         
 def check(check_only):
@@ -249,26 +348,29 @@ def main(argv):
         Worker().process_input()
     elif mode == "master":
         if len(args[1:]) > 0:
-          ssh_paths = args[1:]
+            ssh_paths = args[1:]
         else:
-          ssh_paths = [Config.export_path]
+            ssh_paths = ['.']
         master = Master(ssh_paths,outfile)
         master.synch_all_workers()
         master.tally()
         master.output(10)
     elif mode == "get":
-      for uri in args[1:]:
-        Worker().injest(uri)
+        worker = Worker()
+        for uri in args[1:]:
+            worker.injest(uri)
     elif mode == "rget":
-      if len(args)<2:
-        help(mode)
-      worker = args[1]
-      uris = args[2:]
-      rget(worker,uris)
+        if len(args)<2:
+            help(mode)
+        worker = RemoteWorker(args[1])
+        uris = args[2:]
+        worker.remote_injest(uris)
+    elif mode == "clean":
+        os.system("rm -f data/test*.json data/*/*.json data/input/*.txt")
     elif mode == "test":
-      suite = unittest.TestLoader().discover('.')
-      os.system("rm -f data/test*.json")      
-      unittest.TextTestRunner(verbosity={True:3,False:2}[Config.verbose]).run(suite)
+        suite = unittest.TestLoader().discover('.')
+        os.system("rm -f data/test*.json")
+        unittest.TextTestRunner(verbosity={True:3,False:2}[Config.verbose]).run(suite)
     
-if __name__ == "__main__":
-   main(sys.argv[1:])
+if  __name__ == "__main__":
+    main(sys.argv[1:])

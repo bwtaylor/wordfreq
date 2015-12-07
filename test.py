@@ -8,36 +8,50 @@ from hashlib import sha1
 from collections import Counter
 from os.path import isfile, basename
 
-def unittest_verbosity():
-    """Return the verbosity setting of the currently running TextTestRunner,
-       or 0 if none is running.
 
-    """
-    frame = inspect.currentframe()
-    while frame:
-        self = frame.f_locals.get('self')
-        if isinstance(self, unittest.TextTestRunner):
-            return self.verbosity
-        frame = frame.f_back
-    return 0
+class BaseTest(unittest.TestCase):
 
-def shared_setup():
-    os.system("rm -f data/input/*.txt data/*/*.json data/*.json")
-    if unittest_verbosity() > 2:
-        Config.verbose=True
-
-class TestWorker(unittest.TestCase): 
-  
     def setUp(self):
-        shared_setup()
-  
+        os.system("rm -f data/input/*.txt data/*/*.json data/*.json")
+        if self.unittest_verbosity() > 2:
+            Config.verbose=True
+
+    def unittest_verbosity(self):
+        """Return the verbosity setting of the currently running TextTestRunner,
+           or 0 if none is running.
+        """
+        frame = inspect.currentframe()
+        while frame:
+            self = frame.f_locals.get('self')
+            if isinstance(self, unittest.TextTestRunner):
+                return self.verbosity
+            frame = frame.f_back
+        return 0
+
+    def assertFileHasSha1(self,filename, expected_sha1,
+                          message="file %s sha1 expected: %s was %s"):
+        with open(filename) as f:
+            raw_file_contents = f.read()
+        actual_sha1=sha1(raw_file_contents).hexdigest()
+        self.assertEqual(actual_sha1,expected_sha1,
+                         message % (filename,expected_sha1,actual_sha1) )
+
+
+class TestWorker(BaseTest):
+
     def test_injest(self):
-        uri='http://www.constitution.org/usdeclar.txt'
-        Worker().injest(uri) 
-        expected_sha1 = '15684690e8132044f378b4d4af8a7331c8da17b1'
-        with open(Config.input_path+'/'+basename(uri)) as f:
-            raw_file_contents = f.read()        
-        self.assertEqual(sha1(raw_file_contents).hexdigest(),expected_sha1,'Wrong sha1 Ulysses')
+
+        worker = Worker()
+
+        uri1='http://www.constitution.org/usdeclar.txt'
+        filename1 = Config.input_path+'/'+basename(uri1)
+        worker.injest(uri1)
+        self.assertFileHasSha1(filename1,'15684690e8132044f378b4d4af8a7331c8da17b1')
+
+        uri2="data/test/pledge.txt"
+        filename2 = Config.input_path+'/'+basename(uri2)
+        worker.injest(uri2)
+        self.assertFileHasSha1(filename2,'b253badebab8945669ecb7e2181bc22e0c9998b5')
 
       
     def test_write_freq(self):
@@ -68,24 +82,23 @@ class TestWorker(unittest.TestCase):
         Worker().process_input()
         self.assertEqual(len(ls(Config.export_path)), len(ls(Config.input_path)) )
         
-class TestRemoteWorker(unittest.TestCase):
+class TestRemoteWorker(BaseTest):
   
-    def setUp(self):
-        shared_setup()
-
     def test_fetch(self):
-        pass
+        os.system("cp testdata/fetch/*.json %s" % Config.export_path)
+        remote_worker = RemoteWorker(".")
+        for filename in ls(Config.export_path):
+            remote_worker.fetch(basename(filename))
+        self.assertEqual(len(ls(Config.export_path)), len(ls(Config.import_path)) )
+
     
     def test_synch(self):
-        pass
+        self.fail('not implemented')
       
-class TestMaster(unittest.TestCase):
+class TestMaster(BaseTest):
   
-    def setUp(self):
-        shared_setup()
-
     def test_synch_all_workers(self):
-        pass
+        self.fail('not implemented')
     
     def test_read_freq(self):
         pass #covered by test_tally
@@ -119,9 +132,18 @@ one: 1
         output = master.output()
         self.assertEqual(output, expected, 'Pledge output not as expected')
         
-class TestEndToEnd(unittest.TestCase):
+class TestEndToEnd(BaseTest):
   
-    expected_output1 ='''the: 56510
+    def test_local_end_to_end(self):
+
+        os.system("cp data/test/*.txt %s" % Config.input_path)
+        worker = Worker()
+        worker.process_input()
+        master=Master(['.'])
+        master.synch_all_workers()
+        master.tally()
+        output1=master.output(10)
+        expected_output1 = '''the: 56510
 and: 37915
 to: 27984
 of: 27884
@@ -132,8 +154,15 @@ it: 15182
 that: 14578
 was: 13184
 '''  
+        self.assertEqual(output1, expected_output1, 'End to End output1 not as expected')
 
-    expected_output2 ='''the: 56588
+        uri='http://www.constitution.org/usdeclar.txt'
+        worker.injest(uri)
+        worker.process_input()
+        master.synch_all_workers()
+        master.tally()
+        output2=master.output(10)
+        expected_output2 = '''the: 56588
 and: 37972
 to: 28049
 of: 27964
@@ -144,27 +173,7 @@ it: 15188
 that: 14591
 was: 13184
 '''
-
-    def setUp(self):
-        shared_setup()
-
-    def test_local_end_to_end(self):
-        os.system("cp data/test/*.txt %s" % Config.input_path)
-        worker = Worker()
-        worker.process_input()
-        master=Master([Config.export_path])
-        master.synch_all_workers()
-        master.tally()
-        output1=master.output(10)
-        self.assertEqual(output1, TestEndToEnd.expected_output1, 'End to End output1 not as expected')
-
-        uri='http://www.constitution.org/usdeclar.txt'
-        worker.injest(uri)
-        worker.process_input()
-        master.synch_all_workers()
-        master.tally()
-        output2=master.output(10)
-        self.assertEqual(output2, TestEndToEnd.expected_output2, 'End to End output2 not as expected')
+        self.assertEqual(output2, expected_output2, 'End to End output2 not as expected')
 
 
 if __name__ == "__main__":
