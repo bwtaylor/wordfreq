@@ -345,10 +345,26 @@ def check(check_only):
         sys.exit()
         
 def help(mode=""):
-    if mode=="get":
+    if mode=="worker":
+        print 'wordfreq.py worker'
+    elif mode=="worker-loop":
+        print 'wordfreq.py worker-loop'
+    elif mode=="worker-stop":
+        print 'wordfreq.py worker-stop'
+    elif mode=="master":
+        print 'wordfreq.py master [ssh_path=.]*'
+    elif mode=="worker-loop":
+        print 'wordfreq.py master-loop [ssh_path=.]*'
+    elif mode=="worker-stop":
+        print 'wordfreq.py master-stop'
+    elif mode=="get":
         print 'wordfreq.py get [uri]*'
-    if mode=="rget":
+    elif mode=="rget":
         print 'wordfreq.py rget worker_ssh_path uri [uri]*'
+    elif mode=="clean":
+        print 'wordfreq.py clean'
+    elif mode=="test":
+        print 'wordfreq.py test'
     else:
         print 'wordfreq.py mode [-h|--help] [-v|--verbose] [-c|--check] [ssh_path]*'
     
@@ -456,7 +472,7 @@ def main(argv):
             worker.injest(uri)
             
     elif mode == "rget":
-        if len(args)<2:
+        if len(args)<3:
             help(mode)
         remote_worker = RemoteWorker(args[1])
         uris = args[2:]
