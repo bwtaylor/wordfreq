@@ -29,7 +29,8 @@ class Config(object):
     import_path = "data/import"    
     complete_path = "data/complete"
     default_total_filename="data/total.json"
-    pidfile = "worker.pid"
+    worker_pidfile = "worker.pid"
+    master_pidfile = "master.pid"
 
 class Worker(object):
 
@@ -53,7 +54,7 @@ class Worker(object):
         filename = basename(uri)
         injest_filename = Config.injest_path+"/"+filename
         input_filename = Config.input_path+"/"+filename
-        if Config.verbose > 3:
+        if Config.verbose > 2:
             print("injested %s to %s" %(uri,input_filename))
         parsed_uri = urlparse(uri)
         if parsed_uri.netloc:
@@ -294,11 +295,14 @@ class Master(object):
         add it to the running total, then move the file to the directory
         where all the completed files go.
         """
+        changes=False
         for freq_filename in ls(Config.import_path):
             if Config.verbose > 3:
                 print("merging words frequencies from %s" % freq_filename)
             self.update_total(self.read_freq(freq_filename))
             move(freq_filename, Config.complete_path)
+            changes=True
+        return changes
     
     def output(self,n=10,output=""):
         """Read the totals from the file that tracks them and output the
@@ -384,10 +388,10 @@ def main(argv):
         
     elif mode == "worker-loop":
         pid = str(os.getpid())
-        if os.path.isfile(Config.pidfile):
+        if os.path.isfile(Config.worker_pidfile):
             sys.exit("pidfile exists: worker already running")
         else:
-            file(Config.pidfile, 'w').write(pid)
+            file(Config.worker+pidfile, 'w').write(pid)
         worker = Worker()
         
         go = True
@@ -395,14 +399,14 @@ def main(argv):
             worker.process_input()
             time.sleep(1)
             try:
-                with open(Config.pidfile) as f:
+                with open(Config.worker_pidfile) as f:
                     newpid = f.read()
                     go = (newpid == pid)
             except IOError:
                 go = False
             
     elif mode == "worker-stop":
-        os.system("rm -f %s" % Config.pidfile)
+        os.system("rm -f %s" % Config.worker_pidfile)
         
     elif mode == "master":
         if len(args[1:]) > 0:
@@ -413,6 +417,38 @@ def main(argv):
         master.synch_all_workers()
         master.tally()
         master.output(10)
+        
+    elif mode == "master-loop":
+      
+        pid = str(os.getpid())
+        
+        if os.path.isfile(Config.master_pidfile):
+            sys.exit("master pidfile exists: master already running")
+        else:
+            file(Config.master_pidfile, 'w').write(pid)
+            
+        if len(args[1:]) > 0:
+            ssh_paths = args[1:]
+        else:
+            ssh_paths = ['.']
+        master = Master(ssh_paths,outfile)
+        
+        go = True
+        while go:
+            master = Master(ssh_paths,outfile)
+            master.synch_all_workers()
+            if master.tally():
+                master.output()
+            time.sleep(1)
+            try:
+                with open(Config.master_pidfile) as f:
+                    newpid = f.read()
+                    go = (newpid == pid)
+            except IOError:
+                go = False
+            
+    elif mode == "master-stop":
+        os.system("rm -f %s" % Config.master_pidfile)        
         
     elif mode == "get":
         worker = Worker()
