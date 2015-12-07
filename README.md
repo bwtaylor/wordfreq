@@ -8,7 +8,7 @@ We assume these things are working on all nodes (master and worker) when we star
 
 * Python 2.7 is installed
 * git is installed
-* scp is installed and on the path
+* ssh and scp are installed and on the path
 
 Install the code by using git:
 
@@ -19,9 +19,9 @@ No libraries are required.
 
 ### Configuration
 
-Setup ssh certificates so that files can be copied via scp from each worker's user@host to the master.
+Setup ssh certificates so that one can shell in to the remote worker and that files can be copied via scp from each worker's user@host to the master.
 
-For each such worker, we will use its ssh_host value with path. Any number positive number of workers is supported. Workers may also be local by simply supplying a file path. For convenience, set these to an environment shell variable on the master node.
+For each such worker, we will use its ssh_host value with path: ```user@host:/path/to/wordfreq```. Any positive number of workers is supported. Workers may also be local by simply supplying a relative or absolute local file path. For convenience, set these to an environment shell variable on the master node. I use $W1 … $W4 as shown below. This reduces typing on the CLI.
 
 The end to end test to integrate remote nodes synch will fail unless at least one such node is configured. This is done by the environment variable TEST_REMOTE_WORKERS, which must be set.
 
