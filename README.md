@@ -27,7 +27,7 @@ The end to end test to integrate remote nodes synch will fail unless at least on
 
 ```
 W1=user@host:/path/to/wordfreq
-W2=user2@host2:/path2/to/wordfreq
+W2=user2@host2:relpath/wordfreq
 W3=.
 W4=other/local/worfreq/repo
 
