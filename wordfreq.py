@@ -402,7 +402,7 @@ def main(argv):
                 go = False
             
     elif mode == "worker-stop":
-        os.system("rm -f %s" % pidfile)
+        os.system("rm -f %s" % Config.pidfile)
         
     elif mode == "master":
         if len(args[1:]) > 0:
