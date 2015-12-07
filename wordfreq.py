@@ -146,12 +146,12 @@ class RemoteWorker(object):
         if match:
             self.is_remote = True
             self.user_at_host = match.group(1)
-            self.remote_export_path = match.group(2)+"/"+Config.export_path
+            self.remote_path = match.group(2)
         else:
             # must be a local path
             self.is_remote = False
             self.user_at_host = ""
-            self.remote_export_path = ssh_path+"/"+Config.export_path
+            self.remote_path = ssh_path
 
 
     def fetch(self,filename):
@@ -178,15 +178,18 @@ class RemoteWorker(object):
         """Uses ssh to list the files in the remote worker's export directory,
         and then fetches them.
         """
+        
+        remote_export_path = self.remote_path+"/"+Config.export_path
+        
         if Config.verbose:
             print("synching %s" % self.ssh_path)
             
         if self.is_remote:
-            cmd = "ls %s" % self.remote_export_path
+            cmd = "ls %s" % remote_export_path
             raw_output = subprocess.check_output(["ssh", self.user_at_host, cmd])
 
         else:
-            raw_output = subprocess.check_output(["ls", self.remote_export_path])
+            raw_output = subprocess.check_output(["ls", remote_export_path])
 
         filenames = raw_output.split('\n')[0:-1] #drop the last empty line
         for filename in filenames:
@@ -200,7 +203,7 @@ class RemoteWorker(object):
           verbose_flag = "-v"
         else:
           verbose_flag = ""
-        cmd = "python wordfreq.py %s get %s" % (verbose_flag, uris_str)
+        cmd = "cd %s; python wordfreq.py %s get %s" % (self.remote_path, verbose_flag, uris_str)
 
         if self.is_remote:
             raw_output = subprocess.check_output(["ssh", self.user_at_host, cmd])
