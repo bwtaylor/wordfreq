@@ -198,6 +198,7 @@ class RemoteWorker(object):
     def remote_injest(self,uris):
         """Remotely invokes the injest command of a worker."""
 
+        print("uris=%s" % uris)
         uris_str = " ".join(uris)
         if Config.verbose:                                                             
           verbose_flag = "-v"

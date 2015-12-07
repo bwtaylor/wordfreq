@@ -6,6 +6,7 @@ import inspect
 from wordfreq import Worker, RemoteWorker, Master, Config, ls
 from hashlib import sha1
 from collections import Counter
+from os import environ
 from os.path import isfile, basename
 
 
@@ -89,15 +90,18 @@ class TestRemoteWorker(BaseTest):
 
     
     def test_synch(self):
-        os.system("cp testdata/fetch/*.json %s" % Config.export_path)
+        os.system("cp testdata/synch/*.json %s" % Config.export_path)
         remote_worker = RemoteWorker(".")
         remote_worker.synch()
         self.assertEqual(len(ls(Config.export_path)), len(ls(Config.import_path)) )
+        
+    def remote_injest(self):
+        pass #covered by TestEndToEnd.test_remote_worker
       
 class TestMaster(BaseTest):
   
     def test_synch_all_workers(self):
-        self.fail('not implemented')
+        pass #covered by TestEndToEnd.test_remote_worker
     
     def test_read_freq(self):
         pass #covered by test_tally
@@ -141,7 +145,7 @@ class TestEndToEnd(BaseTest):
         master=Master(['.'])
         master.synch_all_workers()
         master.tally()
-        output1=master.output(10)
+        output1=master.output()
         expected_output1 = '''the: 56510
 and: 37915
 to: 27984
@@ -160,7 +164,7 @@ was: 13184
         worker.process_input()
         master.synch_all_workers()
         master.tally()
-        output2=master.output(10)
+        output2=master.output()
         expected_output2 = '''the: 56588
 and: 37972
 to: 28049
@@ -173,6 +177,37 @@ that: 14591
 was: 13184
 '''
         self.assertEqual(output2, expected_output2, 'End to End output2 not as expected')
+
+    def test_remote_workers(self):
+
+        remote_workers=environ['TEST_REMOTE_WORKERS']
+        workers = remote_workers.split()
+        self.assertTrue(len(workers)>0, "must configure TEST_REMOTE_WORKERS environmenet variable to ssh_path for one or more remote workers")
+        
+        master = Master(workers)
+        
+        expected_output='''the: 12464
+and: 9022
+i: 7697
+to: 6919
+of: 6508
+a: 4466
+in: 3756
+that: 3537
+he: 3194
+my: 3040
+'''
+        
+        for worker in workers:
+            remote_worker = RemoteWorker(worker)
+            file_uris = [ "testdata/remote_workers/dracula.txt",
+                          "testdata/remote_workers/frankenstein.txt" ]
+            remote_worker.remote_injest(file_uris)
+            master.synch_all_workers()
+            master.tally()
+            output=master.output(10)
+            self.assertEqual(output, expected_output, "worker %s output wrong" % remote_worker.ssh_path)
+            self.setUp()
 
 
 if __name__ == "__main__":
