@@ -48,11 +48,11 @@ class Worker(object):
         moved to the input_path. This allows a Remote Worker may invoke this
         via ssh at the same time that another Worker is running.
         """
-        if Config.verbose:
-            print("injested %s to %s" %(uri,input_filename))
         filename = basename(uri)
         injest_filename = Config.injest_path+"/"+filename
         input_filename = Config.input_path+"/"+filename
+        if Config.verbose:
+            print("injested %s to %s" %(uri,input_filename))
         parsed_uri = urlparse(uri)
         if parsed_uri.netloc:
             urlretrieve(uri,injest_filename)
