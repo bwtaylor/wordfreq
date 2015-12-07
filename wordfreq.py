@@ -48,6 +48,8 @@ class Worker(object):
         moved to the input_path. This allows a Remote Worker may invoke this
         via ssh at the same time that another Worker is running.
         """
+        if Config.verbose:
+            print("injested %s to %s" %(uri,input_filename))
         filename = basename(uri)
         injest_filename = Config.injest_path+"/"+filename
         input_filename = Config.input_path+"/"+filename
@@ -56,11 +58,9 @@ class Worker(object):
             urlretrieve(uri,injest_filename)
         else:
             #convert possibly relative filepath to file: scheme uri
-            file_uri = 'file:///' + pathname2url(abspath(parsed_uri.path))
+            file_uri = 'file://' + pathname2url(abspath(parsed_uri.path))
             urlretrieve(uri,injest_filename)
         move(injest_filename,input_filename)
-        if Config.verbose:
-            print("injested %s to %s" %(uri,input_filename))
   
   
     def write_freq(self,filepath,counter):
