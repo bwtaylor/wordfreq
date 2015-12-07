@@ -21,7 +21,7 @@ from urlparse import urlparse
 class Config(object):
     '''Holds config globals. There's probably a more pythonic way to do this.
     '''
-    verbose = 0
+    verbose = 1
     injest_path = "data/injest"
     input_path = "data/input"
     output_path = "data/output"
@@ -39,7 +39,7 @@ class Worker(object):
     '''
           
     def __init__(self):
-        if Config.verbose > 3:
+        if Config.verbose > 2:
             print("worker started")
  
     def injest(self,uri):
@@ -53,7 +53,7 @@ class Worker(object):
         filename = basename(uri)
         injest_filename = Config.injest_path+"/"+filename
         input_filename = Config.input_path+"/"+filename
-        if Config.verbose  > 0:
+        if Config.verbose > 3:
             print("injested %s to %s" %(uri,input_filename))
         parsed_uri = urlparse(uri)
         if parsed_uri.netloc:
@@ -91,13 +91,13 @@ class Worker(object):
         split_regex = re.compile('[a-z0-9]+')
         
         if isfile(export_filepath): 
-            if Config.verbose > 4:
+            if Config.verbose > 3:
                 print( "Skipped word_freq of %s as %s already exists" % 
                        (filepath, export_filepath) )
             return ''
         else: 
             self.write_freq(output_filepath, Counter(split_regex.findall(raw_file_contents)))
-            if Config.verbose > 4:
+            if Config.verbose > 3:
                 print("Wrote word_freq of %s to %s" % (filepath, output_filepath) )
             return output_filepath 
             
@@ -112,7 +112,7 @@ class Worker(object):
         json_filename = basename(output_filepath)
         export_filepath = join(Config.export_path, json_filename)
         move(output_filepath, export_filepath)
-        if Config.verbose > 3:
+        if Config.verbose > 2:
             print("Exported %s to %s" % (output_filepath, export_filepath)) 
 
     def process_input(self,input_path="data/input"):
@@ -122,11 +122,11 @@ class Worker(object):
         """
         
         for input_filepath in ls(input_path):
-            if Config.verbose > 4:
+            if Config.verbose > 3:
                 print("processing %s" % input_filepath)
             self.export(self.word_freq(input_filepath))
         
-        if Config.verbose > 4:                                        
+        if Config.verbose > 3:                                        
             print("done processing input")
     
 
@@ -167,17 +167,17 @@ class RemoteWorker(object):
         remote_filename = self.ssh_path+"/"+Config.export_path+"/"+filename
         completed_filename = Config.complete_path+"/"+filename
 
-        if Config.verbose > 4:                                                             
+        if Config.verbose > 3:                                                             
           verbose_flag = "-v"
         else:
           verbose_flag = "-q"
           
         if not isfile(completed_filename):
             returncode = subprocess.call(["scp", verbose_flag, remote_filename, Config.import_path])
-            if Config.verbose > 3 and returncode==0:
+            if Config.verbose > 2 and returncode==0:
                 print("fetched %s to %s" % (remote_filename, Config.import_path))
         else:                 
-            if Config.verbose > 3:
+            if Config.verbose > 2:
                 print("skip fetch of %s as %s already exist" % 
                       (remote_filename, completed_filename) )
 
@@ -188,7 +188,7 @@ class RemoteWorker(object):
         
         remote_export_path = self.remote_path+"/"+Config.export_path
         
-        if Config.verbose > 3:
+        if Config.verbose > 2:
             print("synching %s" % self.ssh_path)
             
         if self.is_remote:
@@ -215,7 +215,7 @@ class RemoteWorker(object):
         else:
             raw_output = subprocess.check_output(["python","wordfreq.py", verbose_flag, "get",uris_str])
 
-        if Config.verbose > 3:
+        if Config.verbose > 2:
           print("invoked remote injest on worker at %s for %s" %
                 (self.ssh_path, uris_str) )
           print("remote invocation output: %s" % raw_output )
@@ -231,7 +231,7 @@ class RemoteWorker(object):
         else:
             raw_output = subprocess.check_output([cmd])
         
-        if Config.verbose > 3:
+        if Config.verbose > 2:
            print( raw_output ) 
           
     def clean(self):
@@ -283,7 +283,7 @@ class Master(object):
         total_counter = self.read_freq(self.total_filename)
         total_counter.update(freq_counter)
         self.local_worker.write_freq(self.total_filename, total_counter)
-        if Config.verbose > 4:
+        if Config.verbose > 3:
             print("  found %s occurances of %s words" % 
                   ( sum(freq_counter.values()), len(freq_counter)) )
             print("  total %s occurances of %s words" % 
@@ -295,7 +295,7 @@ class Master(object):
         where all the completed files go.
         """
         for freq_filename in ls(Config.import_path):
-            if Config.verbose > 4:
+            if Config.verbose > 3:
                 print("merging words frequencies from %s" % freq_filename)
             self.update_total(self.read_freq(freq_filename))
             move(freq_filename, Config.complete_path)
@@ -307,7 +307,7 @@ class Master(object):
         total_freq = self.read_freq(self.total_filename)
         for (k,v) in total_freq.most_common(n):
             output += "%s: %s\n" % (k,v)
-        if Config.verbose > 3:
+        if Config.verbose > 2:
           print(output)
         return output
             
@@ -336,7 +336,7 @@ def check(check_only):
         message = "Export path %s must be same partition as Output path %s for atomic copy"
         sys.exit(message % (export_path, import_path))
     if check_only:
-        if Config.verbose > 4:
+        if Config.verbose > 3:
             print('check flag set, exiting after checking')
         sys.exit()
         
@@ -365,7 +365,7 @@ def main(argv):
             help()
             sys.exit()
         elif opt in ("-v", "--verbose"):
-            Config.verbose=1
+            Config.verbose=2
         elif opt in ("-V", "--verbosity="):
             Config.verbose=int(arg)
         elif opt in ("-c", "--check"):
